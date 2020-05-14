@@ -1,0 +1,132 @@
+version: '2'
+services:
+
+  ksb_pumptest2_zookeeper:
+    image: confluentinc/cp-zookeeper:5.3.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+#  ksb_pumptest2_kafka:
+#    image: confluentinc/cp-kafka:5.3.1
+#    ports:
+#      - "9092:9092"
+#    environment:
+#      KAFKA_BROKER_ID: 1
+#      KAFKA_ZOOKEEPER_CONNECT: ksb_pumptest2_zookeeper:2181
+#      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://ksb_pumptest2_kafka:29092,PLAINTEXT_HOST://localhost:9092
+#      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+#      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+#      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#    depends_on:
+#      - ksb_pumptest2_zookeeper
+
+  ksb_pumptest2_kafka:
+    image: confluentinc/cp-kafka:5.3.1
+    ports:
+      - 9092:9092
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: ksb_pumptest2_zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://ksb_pumptest2_kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CREATE_TOPICS: "rawdata:1:1, measurementdata:1:1,normaliseddata:1:1"
+    depends_on:
+      - ksb_pumptest2_zookeeper
+
+  ksb_pumptest2_mockproducer:
+    image: digitalunit4ksb/ksb_pumptest2_mockproducer:develop
+    volumes:
+      - /home/boddpru/all_images/home/RawDataTemplate_a.json:/app/DataFiles/RawDataTemplate.json
+    environment:
+      KSB_KAFKAURI: ksb_pumptest2_kafka:29092
+      KSB_TOPICNAME: rawdata
+      KSB_MESSAGESPERSECOND: 8
+      KSB_SLEEPTIME: 125
+      KSB_daqKey: 3
+    depends_on:
+      - ksb_pumptest2_kafka
+
+  ksb_pumptest2_keycloak:
+    image: jboss/keycloak:7.0.1
+    ports:
+      - "8088:8080"
+    volumes:
+      - ./pumptest2_realm_export.json:/pumptest2_realm_import.json
+    environment:
+      KEYCLOAK_USER: masteradmin
+      KEYCLOAK_PASSWORD: masterpass742?
+      KEYCLOAK_IMPORT: /pumptest2_realm_import.json
+
+  ksb_pumptest2_authenticationservice:
+    image: digitalunit4ksb/ksb_pumptest2_authenticationservice:develop
+    ports:
+      - "8886:80"
+    environment:
+      KSB_APPLICATIONSETTINGS__KEYCLOAKCONFIGS__TOKENMASTERREALMSERVICEURL: http://ksb_pumptest2_keycloak:8080/auth/realms/master/protocol/openid-connect/token
+      KSB_APPLICATIONSETTINGS__KEYCLOAKCONFIGS__AUTHSERVICEURL: http://ksb_pumptest2_keycloak:8080/auth/realms/Pumptest2/protocol/openid-connect/
+      KSB_APPLICATIONSETTINGS__KEYCLOAKCONFIGS__CLIENTADMINID: admin-cli
+      KSB_APPLICATIONSETTINGS__KEYCLOAKCONFIGS__CLIENTAPPID: ksb-app
+      KSB_APPLICATIONSETTINGS__KEYCLOAKCONFIGS__USERNAME: masteradmin
+      KSB_APPLICATIONSETTINGS__KEYCLOAKCONFIGS__PASSWORD: masterpass742?
+      KSB_APPLICATIONSETTINGS__KEYCLOAKCONFIGS__ADMINSERVICEURL: http://ksb_pumptest2_keycloak:8080/auth/admin/realms/Pumptest2/
+      KSB_APPLICATIONSETTINGS__JWTSETTINGS__AUTHORITY: http://ksb_pumptest2_keycloak:8080/auth/realms/Pumptest2
+      KSB_APPLICATIONSETTINGS__JWTSETTINGS__AUDIENCE: ksb-app
+
+  ksb_pumptest2_ui_backend:
+    image: digitalunit4ksb/ksb_pumptest2_ui_backend:develop
+    ports:
+      - "8887:80"
+    environment:
+      KSB_APPLICATIONSETTINGS__KAFKASETTINGS__KAFKAURI: ksb_pumptest2_kafka:29092
+      KSB_APPLICATIONSETTINGS__KAFKASETTINGS__TOPICNAME: rawdata
+      KSB_APPLICATIONSETTINGS__KAFKASETTINGS__GROUPID: test-consumer-group
+
+  ksb_pumptest2_ui:
+    image: digitalunit4ksb/ksb_pumptest2_ui:develop
+    ports:
+      - "8888:80"
+    environment:
+      REACT_APP_API_BE_UI_HOST: http://vndckr1c:8887
+      REACT_APP_API_AUTH_HOST: http://vndckr1c:8886
+      REACT_APP_API_CONFIG_HOST: http://vndckr1c:53305
+
+  ksb_pumptest2_enricher:
+    image: digitalunit4ksb/ksb_pumptest2_enricher:enrich-service-image
+    environment:
+      DATA_ENRICHER: ENRICH
+     # BOOTSTRAP_SERVER_CONFIG_IP: 192.168.0.102
+      BOOTSTRAP_SERVER_CONFIG_IP: 10.214.5.153
+      BOOTSTRAP_SERVER_CONFIG_PORT: 9092
+      MOCKPRODUCER_TOPIC_NAME: rawdata
+      MEASUREMENTDATA_TOPIC_NAME: measurementdata
+    depends_on:
+      - ksb_pumptest2_mockproducer
+
+  ksb_pumptest2_process:
+    image: digitalunit4ksb/ksb_pumptest2_process:process-service-image
+    environment:
+      DATA_PROCESS: PROCESS
+     # BOOTSTRAP_SERVER_CONFIG_IP: 192.168.0.102
+      BOOTSTRAP_SERVER_CONFIG_IP: 10.214.5.153
+      BOOTSTRAP_SERVER_CONFIG_PORT: 9092
+      MEASUREMENT_TOPIC_NAME: measurementdata
+      NORMALISEDTDATA_TOPIC_NAME: normaliseddata
+    volumes:
+      - ./tempconversion.json:/app/DataFiles/tempconversion.json
+      - ./temperatureconversionlibrary.1.json:/app/DataFiles/temperatureconversionlibrary.1.json
+    depends_on:
+      - ksb_pumptest2_mockproducer
+      - ksb_pumptest2_enricher
+
+  ksb_pumptest2_datasourceservice:
+    image: digitalunit4ksb/ksb_pumptest2_datasourceservice:develop
+    ports:
+     - 55000:80
+
+  ksb_pumptest2_configurationservice:
+    image: digitalunit4ksb/ksb_pumptest2_configurationservice:develop
+    ports:
+     - 53305:80
