@@ -1,0 +1,15 @@
+version: '2'
+services:
+  ksb_pumptest2_enricher:
+
+    image: digitalunit4ksb/ksb_pumptest2_enricher:enrich-service-image
+    ports:
+      - "8080:8080"
+
+   environment:
+      DATA_ENRICHER: ENRICH
+      BOOTSTRAP_SERVER_CONFIG_IP: 10.9.53.201
+      BOOTSTRAP_SERVER_CONFIG_PORT: 9092
+      MOCKPRODUCER_TOPIC_NAME: RawData
+      MEASUREMENTDATA_TOPIC_NAME: MeasurementData
+            
